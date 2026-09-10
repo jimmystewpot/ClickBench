@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StarRocks Versions Benchmark</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-color: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --primary: #0284c7;
+            --primary-hover: #0369a1;
+            --accent: #38bdf8;
+            --success: #16a34a;
+            --success-bg: #dcfce7;
+            --danger: #dc2626;
+            --danger-bg: #fee2e2;
+            --bar-color: #38bdf8;
+            --row-alt: #f1f5f9;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #090d16;
+            --card-bg: #111827;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #1f2937;
+            --primary: #38bdf8;
+            --primary-hover: #7dd3fc;
+            --accent: #0284c7;
+            --success: #22c55e;
+            --success-bg: #052e16;
+            --danger: #ef4444;
+            --danger-bg: #450a0a;
+            --bar-color: #0284c7;
+            --row-alt: #1e293b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+            padding: 2rem 3%;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 { font-size: 1.75rem; font-weight: 700; }
+        .subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 0.25rem; }
+
+        .theme-btn {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 0.8rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1.1rem;
+        }
+
+        .controls {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin-bottom: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .control-label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            min-width: 90px;
+        }
+
+        .btn-pill {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 0.35rem 0.85rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-pill:hover { border-color: var(--primary); }
+        .btn-pill.active {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary);
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; }
+
+        /* Bars table */
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .summary-table th, .summary-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+        }
+        .summary-table th {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+        .summary-bar-cell { width: 60%; }
+        .bar-container {
+            width: 100%;
+            background: var(--bg-color);
+            border-radius: 4px;
+            overflow: hidden;
+            height: 1.25rem;
+        }
+        .bar-fill {
+            height: 100%;
+            background: var(--bar-color);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        /* Detail table */
+        .table-wrap {
+            overflow-x: auto;
+            max-height: 700px;
+        }
+        .detail-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .detail-table th, .detail-table td {
+            padding: 0.6rem 0.8rem;
+            border-bottom: 1px solid var(--border-color);
+            text-align: right;
+        }
+        .detail-table th:first-child, .detail-table td:first-child { text-align: left; }
+        .detail-table th {
+            position: sticky;
+            top: 0;
+            background: var(--card-bg);
+            font-weight: 600;
+            color: var(--text-muted);
+            z-index: 10;
+        }
+        .detail-table tr:hover { background: var(--row-alt); }
+
+        .diff-tag {
+            display: inline-block;
+            padding: 0.1rem 0.35rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            margin-left: 0.35rem;
+        }
+        .diff-better { background: var(--success-bg); color: var(--success); font-weight: 600; }
+        .diff-worse { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
+
+        .best-val { font-weight: 700; color: var(--primary); }
+    </style>
+    <script src="data.generated.js"></script>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>StarRocks Versions Benchmark</h1>
+        <div class="subtitle">Side-by-side performance comparison across releases</div>
+    </div>
+    <button class="theme-btn" id="theme-toggle" title="Toggle Dark/Light Mode">🌓</button>
+</header>
+
+<div class="controls">
+    <div class="control-group">
+        <span class="control-label">Metric:</span>
+        <button class="btn-pill active" data-metric="cold">Cold Run</button>
+        <button class="btn-pill" data-metric="hot">Hot Run</button>
+        <button class="btn-pill" data-metric="load">Load Time</button>
+        <button class="btn-pill" data-metric="size">Storage Size</button>
+    </div>
+    <div class="control-group" id="version-controls">
+        <span class="control-label">Versions:</span>
+        <!-- Populated via JS -->
+    </div>
+</div>
+
+<div class="card">
+    <h2>Relative Summary (Lower is better)</h2>
+    <table class="summary-table">
+        <thead>
+            <tr>
+                <th style="width: 20%;">Version</th>
+                <th class="summary-bar-cell">Relative Duration</th>
+                <th style="text-align: right; width: 20%;">Total Value</th>
+            </tr>
+        </thead>
+        <tbody id="summary-body"></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Per-Query Breakdown</h2>
+    <div class="table-wrap">
+        <table class="detail-table">
+            <thead>
+                <tr id="detail-header">
+                    <th>Query</th>
+                </tr>
+            </thead>
+            <tbody id="detail-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let currentMetric = 'cold';
+    let selectedVersions = new Set();
+
+    function initTheme() {
+        const toggle = document.getElementById('theme-toggle');
+        const saved = localStorage.getItem('sr_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', saved);
+        toggle.onclick = () => {
+            const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('sr_theme', next);
+        };
+    }
+
+    function init() {
+        initTheme();
+
+        if (typeof data === 'undefined' || !data.length) {
+            document.getElementById('summary-body').innerHTML = '<tr><td colspan="3">No benchmark results found. Run some benchmarks or run generate-results.sh!</td></tr>';
+            return;
+        }
+
+        // Available versions
+        const versions = [...new Set(data.map(d => d.version || 'unknown'))].sort();
+        versions.forEach(v => selectedVersions.add(v));
+
+        const vContainer = document.getElementById('version-controls');
+        versions.forEach(v => {
+            const btn = document.createElement('button');
+            btn.className = 'btn-pill active';
+            btn.textContent = v;
+            btn.onclick = () => {
+                if (selectedVersions.has(v)) {
+                    if (selectedVersions.size > 1) {
+                        selectedVersions.delete(v);
+                        btn.classList.remove('active');
+                    }
+                } else {
+                    selectedVersions.add(v);
+                    btn.classList.add('active');
+                }
+                render();
+            };
+            vContainer.appendChild(btn);
+        });
+
+        // Metric buttons
+        document.querySelectorAll('[data-metric]').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('[data-metric]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMetric = btn.dataset.metric;
+                render();
+            };
+        });
+
+        render();
+    }
+
+    function getMetricValue(entry, qIdx) {
+        if (currentMetric === 'load') return entry.load_time;
+        if (currentMetric === 'size') return entry.data_size;
+        if (!entry.result || !entry.result[qIdx]) return null;
+        const tries = entry.result[qIdx];
+        if (currentMetric === 'cold') return tries[0];
+        if (currentMetric === 'hot') {
+            const valid = tries.slice(1).filter(x => x !== null && !isNaN(x));
+            return valid.length ? Math.min(...valid) : tries[0];
+        }
+        return null;
+    }
+
+    function render() {
+        const activeEntries = data.filter(d => selectedVersions.has(d.version));
+        if (!activeEntries.length) return;
+
+        // Baseline is the first selected version
+        const baseline = activeEntries[0];
+
+        // 1. Calculate Totals for Summary
+        const totals = activeEntries.map(e => {
+            let total = 0;
+            if (currentMetric === 'load') total = e.load_time || 0;
+            else if (currentMetric === 'size') total = e.data_size || 0;
+            else {
+                for (let q = 0; q < (e.result ? e.result.length : 0); q++) {
+                    const val = getMetricValue(e, q);
+                    if (val !== null) total += val;
+                }
+            }
+            return { version: e.version, total, machine: e.machine };
+        });
+
+        const minTotal = Math.min(...totals.map(t => t.total || Infinity));
+        const maxTotal = Math.max(...totals.map(t => t.total || 0));
+
+        const summaryBody = document.getElementById('summary-body');
+        summaryBody.innerHTML = '';
+        totals.forEach(t => {
+            const row = document.createElement('tr');
+            const pct = maxTotal > 0 ? (t.total / maxTotal) * 100 : 0;
+            const ratio = minTotal > 0 ? (t.total / minTotal).toFixed(2) : '1.00';
+            let label = `${t.total.toFixed(3)}s`;
+            if (currentMetric === 'load') label = `${t.total}s`;
+            if (currentMetric === 'size') label = `${(t.total / (1024**3)).toFixed(2)} GB`;
+
+            row.innerHTML = `
+                <td><strong>StarRocks ${t.version}</strong><br><small style="color: var(--text-muted);">${t.machine || ''}</small></td>
+                <td class="summary-bar-cell">
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width: ${Math.max(pct, 5)}%;"></div>
+                    </div>
+                </td>
+                <td style="text-align: right;"><strong>${ratio}x</strong> (${label})</td>
+            `;
+            summaryBody.appendChild(row);
+        });
+
+        // 2. Per-Query Detail Table
+        const headerRow = document.getElementById('detail-header');
+        headerRow.innerHTML = '<th>Query</th>';
+        activeEntries.forEach(e => {
+            const th = document.createElement('th');
+            th.textContent = `${e.version}`;
+            headerRow.appendChild(th);
+        });
+
+        const detailBody = document.getElementById('detail-body');
+        detailBody.innerHTML = '';
+
+        if (currentMetric === 'load' || currentMetric === 'size') {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td><strong>Overall Metric</strong></td>`;
+            activeEntries.forEach(e => {
+                const val = currentMetric === 'load' ? `${e.load_time}s` : `${(e.data_size / (1024**3)).toFixed(2)} GB`;
+                row.innerHTML += `<td>${val}</td>`;
+            });
+            detailBody.appendChild(row);
+            return;
+        }
+
+        const numQueries = Math.max(...activeEntries.map(e => (e.result ? e.result.length : 0)));
+        for (let q = 0; q < numQueries; q++) {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td><strong>Q${q}</strong></td>`;
+
+            const queryVals = activeEntries.map(e => getMetricValue(e, q));
+            const validVals = queryVals.filter(v => v !== null);
+            const bestVal = validVals.length ? Math.min(...validVals) : null;
+            const baseVal = getMetricValue(baseline, q);
+
+            activeEntries.forEach((e, idx) => {
+                const val = queryVals[idx];
+                if (val === null) {
+                    row.innerHTML += `<td>N/A</td>`;
+                    return;
+                }
+                const isBest = val === bestVal;
+                let diffHtml = '';
+                if (baseVal !== null && baseVal > 0 && e !== baseline) {
+                    const diffPct = ((val - baseVal) / baseVal) * 100;
+                    const diffClass = diffPct <= -5 ? 'diff-better' : (diffPct >= 5 ? 'diff-worse' : '');
+                    diffHtml = `<span class="diff-tag ${diffClass}">${diffPct > 0 ? '+' : ''}${diffPct.toFixed(1)}%</span>`;
+                }
+
+                row.innerHTML += `<td class="${isBest ? 'best-val' : ''}">${val.toFixed(3)}s${diffHtml}</td>`;
+            });
+
+            detailBody.appendChild(row);
+        }
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>
