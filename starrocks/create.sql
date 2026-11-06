@@ -103,8 +103,11 @@ CREATE TABLE hits (
     HasGCLID SMALLINT NOT NULL,
     RefererHash BIGINT NOT NULL,
     URLHash BIGINT NOT NULL,
-    CLID INT NOT NULL
+    CLID INT NOT NULL,
+    INDEX idx_adv (AdvEngineID) USING BITMAP
 )
 DUPLICATE KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 DISTRIBUTED BY HASH(UserID) BUCKETS 192
-PROPERTIES ( "replication_num"="1");
+PROPERTIES ( "replication_num"="1",
+"bloom_filter_columns" = "URL, SearchPhrase, Title, Referer, UserID",
+);
