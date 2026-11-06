@@ -5,39 +5,79 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
 
 DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-    DRY_RUN=1
-    shift
-fi
+SUITE="native"
+VERSION=""
+MACHINE="$(uname -m)"
 
-VERSION="${1:-}"
-MACHINE="${2:-$(uname -m)}"
+usage() {
+    cat <<EOF
+Usage: $0 [options] <version> [machine]
+
+Options:
+  --dry-run              Generate synthetic JSON output without starting cluster
+  -s, --suite <name>     Benchmark suite: native, parquet, or all (default: native)
+  -h, --help             Display this help message
+EOF
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        -s|--suite)
+            SUITE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+        *)
+            if [ -z "${VERSION}" ]; then
+                VERSION="$1"
+            else
+                MACHINE="$1"
+            fi
+            shift
+            ;;
+    esac
+done
 
 if [ -z "${VERSION}" ]; then
-    echo "Usage: $0 [--dry-run] <version> [machine]" >&2
-    exit 1
+    echo "Error: version is required." >&2
+    usage
 fi
 
 DATE_ISO="$(date -u +%Y-%m-%d)"
 RESULTS_DIR="${HERE}/results"
 mkdir -p "${RESULTS_DIR}"
 
-if [ "${DRY_RUN}" -eq 1 ]; then
-    # Generate synthetically valid ClickBench result JSON for testing/verification
-    RESULTS_ARRAY="["
+generate_mock_json() {
+    local out_ver="$1"
+    local sys_suffix="$2"
+    local results_array="["
     for q in $(seq 0 42); do
+        local cold
         cold=$(awk -v q="$q" 'BEGIN { printf "%.3f", (0.05 + (q % 10) * 0.12) }')
+        local hot1
         hot1=$(awk -v c="$cold" 'BEGIN { printf "%.3f", (c * 0.4) }')
+        local hot2
         hot2=$(awk -v c="$cold" 'BEGIN { printf "%.3f", (c * 0.38) }')
-        [ "$q" -gt 0 ] && RESULTS_ARRAY+=","
-        RESULTS_ARRAY+="[${cold},${hot1},${hot2}]"
+        [ "$q" -gt 0 ] && results_array+=","
+        results_array+="[${cold},${hot1},${hot2}]"
     done
-    RESULTS_ARRAY+="]"
+    results_array+="]"
 
-    JSON_OUTPUT=$(cat <<ENDJSON
+    cat <<ENDJSON
 {
-  "system": "StarRocks",
-  "version": "${VERSION}",
+  "system": "StarRocks${sys_suffix}",
+  "version": "${out_ver}",
   "date": "${DATE_ISO}",
   "machine": "${MACHINE}",
   "cluster_size": 1,
@@ -47,11 +87,18 @@ if [ "${DRY_RUN}" -eq 1 ]; then
   "tags": ["C++", "column-oriented", "MySQL compatible"],
   "load_time": 450,
   "data_size": 17800000000,
-  "result": ${RESULTS_ARRAY}
+  "result": ${results_array}
 }
 ENDJSON
-)
-    echo "${JSON_OUTPUT}" | jq .
+}
+
+if [ "${DRY_RUN}" -eq 1 ]; then
+    if [[ "${SUITE}" == "native" || "${SUITE}" == "all" ]]; then
+        generate_mock_json "${VERSION}" "" | jq .
+    fi
+    if [[ "${SUITE}" == "parquet" || "${SUITE}" == "all" ]]; then
+        generate_mock_json "${VERSION}-parquet" " (Parquet)" | jq .
+    fi
     exit 0
 fi
 
@@ -64,6 +111,23 @@ SR_PKG="StarRocks-${VERSION}-ubuntu-${ARCH}"
 WORK_DIR="${HERE}/work/${VERSION}"
 mkdir -p "${WORK_DIR}"
 cd "${WORK_DIR}"
+
+# Port safety cleanup
+kill_stale_starrocks() {
+    echo "Checking for stale processes on StarRocks ports..." >&2
+    for port in 9030 9050 8040 8030 8060; do
+        local pids
+        pids=$(fuser "${port}/tcp" 2>/dev/null || true)
+        if [ -n "$pids" ]; then
+            echo "Port ${port} in use by PID(s): ${pids}. Terminating..." >&2
+            kill -15 $pids 2>/dev/null || true
+            sleep 2
+            kill -9 $pids 2>/dev/null || true
+        fi
+    done
+}
+
+kill_stale_starrocks
 
 if [ ! -d "${SR_PKG}" ]; then
     TARBALL="${SR_PKG}.tar.gz"
@@ -91,6 +155,7 @@ backend_alive() {
 }
 
 # Start cluster
+echo "Starting StarRocks FE & BE..." >&2
 "${STARROCKS_HOME}/fe/bin/start_fe.sh" --daemon
 "${STARROCKS_HOME}/be/bin/start_be.sh" --daemon
 
@@ -112,41 +177,45 @@ if ! backend_alive; then
     exit 1
 fi
 
-# Run create and load
-mysql -h127.0.0.1 -P9030 -uroot < "${ROOT}/starrocks/create.sql"
-LOAD_START=$(date +%s)
-bash "${ROOT}/starrocks/load"
-LOAD_END=$(date +%s)
-LOAD_TIME=$((LOAD_END - LOAD_START))
+run_queries() {
+    local query_file="$1"
+    local query_runner="$2"
+    local results_array="["
+    local q_idx=0
+    while IFS= read -r query_sql || [ -n "$query_sql" ]; do
+        [ -z "$query_sql" ] && continue
+        local tries=()
+        for try in 1 2 3; do
+            if [ "$try" -eq 1 ]; then
+                sync
+                echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+            fi
+            local time_taken
+            time_taken=$(echo "$query_sql" | bash "${query_runner}" 2>&1 >/dev/null | tail -n1)
+            tries+=("${time_taken}")
+        done
+        [ "$q_idx" -gt 0 ] && results_array+=","
+        results_array+="[${tries[0]},${tries[1]},${tries[2]}]"
+        q_idx=$((q_idx + 1))
+    done < "${query_file}"
+    results_array+="]"
+    echo "${results_array}"
+}
 
-DATA_SIZE=$(bash "${ROOT}/starrocks/data-size")
+# Native Suite Execution
+if [[ "${SUITE}" == "native" || "${SUITE}" == "all" ]]; then
+    echo "Executing Native ClickBench Suite..." >&2
+    mysql -h127.0.0.1 -P9030 -uroot < "${ROOT}/starrocks/create.sql"
+    LOAD_START=$(date +%s)
+    bash "${ROOT}/starrocks/load"
+    LOAD_END=$(date +%s)
+    LOAD_TIME=$((LOAD_END - LOAD_START))
+    DATA_SIZE=$(bash "${ROOT}/starrocks/data-size")
 
-# Execute queries
-RESULTS_ARRAY="["
-Q_IDX=0
-while IFS= read -r query_sql || [ -n "$query_sql" ]; do
-    [ -z "$query_sql" ] && continue
-    TRIES=()
-    for try in 1 2 3; do
-        if [ "$try" -eq 1 ]; then
-            # Drop OS page cache if root
-            sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
-        fi
-        TIME_TAKEN=$(echo "$query_sql" | bash "${ROOT}/starrocks/query" 2>&1 >/dev/null | tail -n1)
-        TRIES+=("${TIME_TAKEN}")
-    done
-    [ "$Q_IDX" -gt 0 ] && RESULTS_ARRAY+=","
-    RESULTS_ARRAY+="[${TRIES[0]},${TRIES[1]},${TRIES[2]}]"
-    Q_IDX=$((Q_IDX + 1))
-done < "${ROOT}/starrocks/queries.sql"
-RESULTS_ARRAY+="]"
+    RESULTS_ARRAY=$(run_queries "${ROOT}/starrocks/queries.sql" "${ROOT}/starrocks/query")
 
-# Stop cluster
-"${STARROCKS_HOME}/be/bin/stop_be.sh" || true
-"${STARROCKS_HOME}/fe/bin/stop_fe.sh" || true
-
-JSON_FILE="${RESULTS_DIR}/${VERSION}.json"
-cat <<ENDJSON > "${JSON_FILE}"
+    JSON_FILE="${RESULTS_DIR}/${VERSION}.json"
+    cat <<ENDJSON > "${JSON_FILE}"
 {
   "system": "StarRocks",
   "version": "${VERSION}",
@@ -162,6 +231,44 @@ cat <<ENDJSON > "${JSON_FILE}"
   "result": ${RESULTS_ARRAY}
 }
 ENDJSON
+    echo "Saved native result to ${JSON_FILE}" >&2
+fi
 
-echo "Saved result to ${JSON_FILE}" >&2
-cat "${JSON_FILE}"
+# Parquet Suite Execution
+if [[ "${SUITE}" == "parquet" || "${SUITE}" == "all" ]]; then
+    echo "Executing Parquet ClickBench Suite..." >&2
+    cd "${ROOT}/starrocks-parquet"
+    LOAD_START=$(date +%s)
+    bash "${ROOT}/starrocks-parquet/load"
+    LOAD_END=$(date +%s)
+    LOAD_TIME=$((LOAD_END - LOAD_START))
+    DATA_SIZE=$(bash "${ROOT}/starrocks-parquet/data-size" 2>/dev/null || echo 0)
+
+    RESULTS_ARRAY=$(run_queries "${ROOT}/starrocks-parquet/queries.sql" "${ROOT}/starrocks-parquet/query")
+
+    JSON_FILE="${RESULTS_DIR}/${VERSION}-parquet.json"
+    cat <<ENDJSON > "${JSON_FILE}"
+{
+  "system": "StarRocks (Parquet)",
+  "version": "${VERSION}-parquet",
+  "date": "${DATE_ISO}",
+  "machine": "${MACHINE}",
+  "cluster_size": 1,
+  "proprietary": "no",
+  "hardware": "cpu",
+  "tuned": "no",
+  "tags": ["C++", "column-oriented", "MySQL compatible", "Parquet"],
+  "load_time": ${LOAD_TIME},
+  "data_size": ${DATA_SIZE},
+  "result": ${RESULTS_ARRAY}
+}
+ENDJSON
+    echo "Saved parquet result to ${JSON_FILE}" >&2
+fi
+
+# Stop cluster
+echo "Stopping StarRocks cluster..." >&2
+"${STARROCKS_HOME}/be/bin/stop_be.sh" || true
+"${STARROCKS_HOME}/fe/bin/stop_fe.sh" || true
+kill_stale_starrocks
+echo "Run complete." >&2
