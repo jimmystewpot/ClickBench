@@ -227,4 +227,3 @@ sha256sum "${TARGET_TARBALL}" > "${TARGET_TARBALL}.sha256"
 echo "Artifact successfully packaged:"
 ls -lh "${TARGET_TARBALL}"
 echo "SHA256: $(cat "${TARGET_TARBALL}.sha256")"
-EOF
