@@ -15,6 +15,7 @@ if [ ! -d "$SR_DIR" ]; then
     # Configure FE/BE.
     mkdir -p "$SR_DIR/meta" "$SR_DIR/storage"
     printf "\nmeta_dir = $PWD/$SR_DIR/meta \n"        >> "$SR_DIR/fe/conf/fe.conf"
+    printf "\ndefault_table_compression = zstd \n"    >> "$SR_DIR/fe/conf/fe.conf"
     printf "\nstorage_root_path = $PWD/$SR_DIR/storage\n" >> "$SR_DIR/be/conf/be.conf"
     # Disable internal caches so the cold run is actually cold.
     printf "\ndisable_storage_page_cache = true\n"  >> "$SR_DIR/be/conf/be.conf"
