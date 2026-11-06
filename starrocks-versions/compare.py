@@ -82,14 +82,18 @@ def main():
             diff_hot_val, diff_hot_str = compute_diff(b_hot, t_hot)
 
             if diff_cold_val is not None:
-                ratios_cold.append(t_cold / b_cold)
+                b_val = max(b_cold, 0.001)
+                t_val = max(t_cold, 0.001)
+                ratios_cold.append(t_val / b_val)
                 if diff_cold_val > 10.0:
                     regressions_cold += 1
                 elif diff_cold_val < -10.0:
                     improvements_cold += 1
 
             if diff_hot_val is not None:
-                ratios_hot.append(t_hot / b_hot)
+                b_val = max(b_hot, 0.001)
+                t_val = max(t_hot, 0.001)
+                ratios_hot.append(t_val / b_val)
 
             query_diffs.append({
                 "query": f"Q{q_idx}",
