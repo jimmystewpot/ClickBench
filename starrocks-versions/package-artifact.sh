@@ -200,7 +200,7 @@ if [[ "${USE_DOCKER}" -eq 1 ]]; then
                 rm -rf /starrocks/thirdparty/installed
                 ln -s /var/local/thirdparty/installed /starrocks/thirdparty/installed
             fi
-            ./thirdparty/build-thirdparty.sh bitshuffle
+            ./thirdparty/build-thirdparty.sh bitshuffle simdjson
             ./build.sh --be --fe
         "
 else
