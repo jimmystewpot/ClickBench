@@ -205,12 +205,13 @@ run_queries() {
 # Native Suite Execution
 if [[ "${SUITE}" == "native" || "${SUITE}" == "all" ]]; then
     echo "Executing Native ClickBench Suite..." >&2
-    mysql -h127.0.0.1 -P9030 -uroot < "${ROOT}/starrocks/create.sql"
+    cd "${ROOT}/starrocks"
     LOAD_START=$(date +%s)
     bash "${ROOT}/starrocks/load"
     LOAD_END=$(date +%s)
     LOAD_TIME=$((LOAD_END - LOAD_START))
-    DATA_SIZE=$(bash "${ROOT}/starrocks/data-size")
+    DATA_SIZE=$(du -bcs "${STARROCKS_HOME}/storage/" 2>/dev/null | awk '/total$/ {print $1}')
+    DATA_SIZE=${DATA_SIZE:-0}
 
     RESULTS_ARRAY=$(run_queries "${ROOT}/starrocks/queries.sql" "${ROOT}/starrocks/query")
 
