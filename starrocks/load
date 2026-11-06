@@ -7,15 +7,154 @@ mysql -h127.0.0.1 -P9030 -uroot -e "CREATE DATABASE hits"
 mysql -h127.0.0.1 -P9030 -uroot hits < create.sql
 
 START=$(date +%s)
-gzip -c "hits.tsv" | curl --location-trusted \
-    -u root: \
-    --data-binary @- \
-    -H "compression: gzip" \
-    -H "label:hits_tsv_${START}" \
-    -H "timeout:1000" \
-    -H "columns: WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
-    http://localhost:8030/api/hits/hits/_stream_load
 
-# hits.tsv is preserved for repeat/matrix benchmark runs
-# rm -f hits.tsv
+# Check for parquet file in common locations
+PARQUET_FILE=""
+for p in "$PWD/hits.parquet" "$PWD/../hits.parquet" "$PWD/../starrocks-parquet/hits.parquet"; do
+    if [ -f "$p" ]; then
+        PARQUET_FILE="$(realpath "$p")"
+        break
+    fi
+done
+
+if [ -n "$PARQUET_FILE" ]; then
+    echo "Loading from Parquet file: ${PARQUET_FILE} using 64-core parallel FILES() pipeline..."
+    mysql -h127.0.0.1 -P9030 -uroot hits <<EOSQL
+INSERT INTO hits.hits
+SELECT
+    WatchID,
+    JavaEnable,
+    Title,
+    GoodEvent,
+    CAST(from_unixtime(EventTime) AS DATETIME) AS EventTime,
+    CAST(days_add('1970-01-01', EventDate) AS DATE) AS EventDate,
+    CounterID,
+    ClientIP,
+    RegionID,
+    UserID,
+    CounterClass,
+    OS,
+    UserAgent,
+    URL,
+    Referer,
+    IsRefresh,
+    RefererCategoryID,
+    RefererRegionID,
+    URLCategoryID,
+    URLRegionID,
+    ResolutionWidth,
+    ResolutionHeight,
+    ResolutionDepth,
+    FlashMajor,
+    FlashMinor,
+    FlashMinor2,
+    NetMajor,
+    NetMinor,
+    UserAgentMajor,
+    UserAgentMinor,
+    CookieEnable,
+    JavascriptEnable,
+    IsMobile,
+    MobilePhone,
+    MobilePhoneModel,
+    Params,
+    IPNetworkID,
+    TraficSourceID,
+    SearchEngineID,
+    SearchPhrase,
+    AdvEngineID,
+    IsArtifical,
+    WindowClientWidth,
+    WindowClientHeight,
+    ClientTimeZone,
+    ClientEventTime,
+    SilverlightVersion1,
+    SilverlightVersion2,
+    SilverlightVersion3,
+    SilverlightVersion4,
+    PageCharset,
+    CodeVersion,
+    IsLink,
+    IsDownload,
+    IsNotBounce,
+    FUniqID,
+    OriginalURL,
+    HID,
+    IsOldCounter,
+    IsEvent,
+    IsParameter,
+    DontCountHits,
+    WithHash,
+    HitColor,
+    LocalEventTime,
+    Age,
+    Sex,
+    Income,
+    Interests,
+    Robotness,
+    RemoteIP,
+    WindowName,
+    OpenerName,
+    HistoryLength,
+    BrowserLanguage,
+    BrowserCountry,
+    SocialNetwork,
+    SocialAction,
+    HTTPError,
+    SendTiming,
+    DNSTiming,
+    ConnectTiming,
+    ResponseStartTiming,
+    ResponseEndTiming,
+    FetchTiming,
+    SocialSourceNetworkID,
+    SocialSourcePage,
+    ParamPrice,
+    ParamOrderID,
+    ParamCurrency,
+    ParamCurrencyID,
+    OpenstatServiceName,
+    OpenstatCampaignID,
+    OpenstatAdID,
+    OpenstatSourceID,
+    UTMSource,
+    UTMMedium,
+    UTMCampaign,
+    UTMContent,
+    UTMTerm,
+    FromTag,
+    HasGCLID,
+    RefererHash,
+    URLHash,
+    CLID
+FROM FILES(
+    "path" = "file://${PARQUET_FILE}",
+    "format" = "parquet"
+);
+EOSQL
+elif [ -f "hits.tsv" ]; then
+    echo "Loading from hits.tsv via Stream Load..."
+    if command -v pigz >/dev/null 2>&1; then
+        pigz -c -p 16 "hits.tsv" | curl --location-trusted \
+            -u root: \
+            --data-binary @- \
+            -H "compression: gzip" \
+            -H "label:hits_tsv_${START}" \
+            -H "timeout:1000" \
+            -H "columns: WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
+            http://localhost:8030/api/hits/hits/_stream_load
+    else
+        curl --location-trusted \
+            -u root: \
+            -T "hits.tsv" \
+            -H "label:hits_tsv_${START}" \
+            -H "timeout:1000" \
+            -H "columns: WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
+            http://localhost:8030/api/hits/hits/_stream_load
+    fi
+else
+    echo "Neither hits.parquet nor hits.tsv found!" >&2
+    exit 1
+fi
+
 sync

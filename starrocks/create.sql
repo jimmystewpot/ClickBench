@@ -108,6 +108,8 @@ CREATE TABLE hits (
 )
 DUPLICATE KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 DISTRIBUTED BY HASH(UserID) BUCKETS 192
-PROPERTIES ( "replication_num"="1",
-"bloom_filter_columns" = "URL, SearchPhrase, Title, Referer, UserID",
+PROPERTIES (
+    "replication_num" = "1",
+    "bloom_filter_columns" = "URL, SearchPhrase, Title, Referer, UserID",
+    "compression" = "ZSTD"
 );
