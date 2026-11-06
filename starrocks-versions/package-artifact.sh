@@ -14,7 +14,7 @@ CFLAGS=""
 REPO_DIR="/home/jalamb/go/src/github.com/jimmystewpot/starrocks"
 OUTPUT_DIR=""
 USE_DOCKER=0
-DOCKER_IMAGE="ghcr.io/starrocks/starrocks/dev-env-ubuntu:main"
+DOCKER_IMAGE="starrocks/dev-env-ubuntu:main-20261029"
 DRY_RUN=0
 CLEAN=0
 
