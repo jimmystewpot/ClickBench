@@ -20,6 +20,7 @@ done
 if [ -n "$PARQUET_FILE" ]; then
     echo "Loading from Parquet file: ${PARQUET_FILE} using 64-core parallel FILES() pipeline..."
     mysql -h127.0.0.1 -P9030 -uroot hits <<EOSQL
+SET query_mem_limit = 34359738368;
 INSERT INTO hits.hits
 SELECT
     WatchID,
