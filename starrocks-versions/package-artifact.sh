@@ -188,10 +188,21 @@ if [[ "${USE_DOCKER}" -eq 1 ]]; then
     docker run --rm \
         -v "${REPO_DIR}:/starrocks" \
         -w "/starrocks" \
+        -e CFLAGS="${CFLAGS:-}" \
+        -e CXXFLAGS="${CXXFLAGS:-}" \
         -e STARROCKS_CXX_COMMON_FLAGS="${STARROCKS_CXX_COMMON_FLAGS:-}" \
         -e EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-}" \
         "${DOCKER_IMAGE}" \
-        ./build.sh --be --fe
+        bash -c "
+            set -eo pipefail
+            git config --global --add safe.directory /starrocks
+            if [ ! -L /starrocks/thirdparty/installed ]; then
+                rm -rf /starrocks/thirdparty/installed
+                ln -s /var/local/thirdparty/installed /starrocks/thirdparty/installed
+            fi
+            ./thirdparty/build-thirdparty.sh bitshuffle
+            ./build.sh --be --fe
+        "
 else
     ./build.sh --be --fe
 fi
