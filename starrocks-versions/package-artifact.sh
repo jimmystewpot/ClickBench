@@ -179,6 +179,10 @@ if [[ -n "${CFLAGS}" ]]; then
     export CFLAGS="${CFLAGS:-} ${CFLAGS}"
     export CXXFLAGS="${CXXFLAGS:-} ${CFLAGS}"
     export EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-} ${CFLAGS}"
+    if [[ "${CFLAGS}" =~ -march=([^ ]+) ]]; then
+        export ARM_ARCH="${BASH_REMATCH[1]}"
+        echo "Detected ARM_ARCH: ${ARM_ARCH}"
+    fi
     echo "Exported CFLAGS/CXXFLAGS: ${CFLAGS}"
 fi
 
@@ -190,6 +194,7 @@ if [[ "${USE_DOCKER}" -eq 1 ]]; then
         -w "/starrocks" \
         -e CFLAGS="${CFLAGS:-}" \
         -e CXXFLAGS="${CXXFLAGS:-}" \
+        -e ARM_ARCH="${ARM_ARCH:-}" \
         -e STARROCKS_CXX_COMMON_FLAGS="${STARROCKS_CXX_COMMON_FLAGS:-}" \
         -e EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-}" \
         "${DOCKER_IMAGE}" \
